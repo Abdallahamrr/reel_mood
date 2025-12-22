@@ -41,6 +41,7 @@ dependencies:
   url_launcher:
   hydrated_bloc: 
   path_provider:
+  flutter_dotenv: ^6.0.0
 dev_dependencies:
   flutter_test:
     sdk: flutter
