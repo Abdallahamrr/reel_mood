@@ -307,7 +307,7 @@ class _MoodSelectionScreenState extends State<MoodSelectionScreen> {
       backgroundColor: Colors.black,
       appBar: AppBar(
         title: const Text(
-          'ReelScope',
+          'MovieScout',
           style: TextStyle(fontWeight: FontWeight.w600, letterSpacing: 1.2),
         ),
         centerTitle: true,
