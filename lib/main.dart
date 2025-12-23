@@ -46,9 +46,8 @@ class ReelMoodApp extends StatelessWidget {
       child: MaterialApp(
         debugShowCheckedModeBanner: false,
         theme: ThemeData.dark().copyWith(
-          scaffoldBackgroundColor: const Color(0xFF121212),
+          scaffoldBackgroundColor: const Color.fromARGB(255, 0, 0, 0),
         ),
-        // CHANGED: Home is now the Navigation Wrapper
         home: const MainNavigationWrapper(),
       ),
     );
@@ -74,7 +73,7 @@ final List<MoodData> moodsList = [
     genreId: 10751,
   ),
   MoodData(
-    label: 'Sad',
+    label: 'Drama',
     imageUrl:
         'https://static0.srcdn.com/wordpress/wp-content/uploads/2023/11/matthew-mcconaughey-crying-in-interstellar.jpg',
     genreId: 18,
@@ -92,13 +91,24 @@ final List<MoodData> moodsList = [
     genreId: 28,
   ),
   MoodData(
-    label: 'Funny',
+    label: 'Sci-Fi',
+    imageUrl:
+        'https://variety.com/wp-content/uploads/2014/10/screen-shot-2014-10-22-at-11-36-12-am.png',
+    genreId: 878,
+  ),
+  MoodData(
+    label: 'Adventure',
+    imageUrl: 'https://pbs.twimg.com/media/EVwIabZVcAAuXD_.jpg',
+    genreId: 12,
+  ),
+  MoodData(
+    label: 'Comedy',
     imageUrl:
         'https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcTp-IhBn3FQ0r3euLUPgq_z0yXwn_hfpLPlnA&s',
     genreId: 35,
   ),
   MoodData(
-    label: 'Scared',
+    label: 'Horror',
     imageUrl:
         'https://www.thevintagenews.com/wp-content/uploads/sites/65/2019/02/img_9569-21-02-19-09-50-fx.jpg',
     genreId: 27,
@@ -117,12 +127,21 @@ class MovieLoaded extends MovieState {
   MovieLoaded(this.movies);
 }
 
+// --- MOVIE CUBIT WITH CACHING ---
 class MovieCubit extends Cubit<MovieState> {
   MovieCubit() : super(MovieInitial());
+
+  final Map<String, List> _cachedMovies = {}; // cache per mood
+  final Map<String, int> _swipeIndex = {}; // track last swipe index per mood
   String get _apiKey => dotenv.env['TMDB_API_KEY'] ?? '';
 
   void fetchMovies(String moodLabel) async {
-    if (_apiKey.isEmpty) return;
+    // Use cache if available
+    if (_cachedMovies.containsKey(moodLabel)) {
+      emit(MovieLoaded(_cachedMovies[moodLabel]!));
+      return;
+    }
+
     emit(MovieLoading());
     try {
       final mood = moodsList.firstWhere((m) => m.label == moodLabel);
@@ -135,27 +154,24 @@ class MovieCubit extends Cubit<MovieState> {
         params['release_date.lte'] = '2010-12-31';
         params['with_genres'] = '18,10751';
       }
+
       final response = await Dio().get(
         'https://api.themoviedb.org/3/discover/movie',
         queryParameters: params,
       );
+
+      _cachedMovies[moodLabel] = response.data['results'];
+      _swipeIndex[moodLabel] = 0; // start from first card
       emit(MovieLoaded(response.data['results']));
     } catch (e) {
       debugPrint(e.toString());
     }
   }
 
-  Future<List> searchMovies(String query) async {
-    if (query.isEmpty) return [];
-    try {
-      final response = await Dio().get(
-        'https://api.themoviedb.org/3/search/movie',
-        queryParameters: {'api_key': _apiKey, 'query': query},
-      );
-      return response.data['results'];
-    } catch (e) {
-      return [];
-    }
+  int getLastSwipeIndex(String moodLabel) => _swipeIndex[moodLabel] ?? 0;
+
+  void updateSwipeIndex(String moodLabel, int index) {
+    _swipeIndex[moodLabel] = index;
   }
 
   Future<Map<String, String>> fetchMovieDetails(int movieId) async {
@@ -164,20 +180,42 @@ class MovieCubit extends Cubit<MovieState> {
         'https://api.themoviedb.org/3/movie/$movieId',
         queryParameters: {'api_key': _apiKey, 'append_to_response': 'videos'},
       );
+
+      String trailerKey = '';
       final videos = response.data['videos']['results'] as List;
       final trailer = videos.firstWhere(
         (v) => v['type'] == 'Trailer' && v['site'] == 'YouTube',
-        orElse: () => {'key': ''},
+        orElse: () => null,
       );
+      if (trailer != null) trailerKey = trailer['key'];
+
       return {
-        'trailer_key': trailer['key'] ?? '',
+        'trailer_key': trailerKey,
+        'vote_average': response.data['vote_average'].toString(),
         'imdb_id': response.data['imdb_id'] ?? '',
-        'vote_average': (response.data['vote_average'] as num)
-            .toDouble()
-            .toStringAsFixed(1),
       };
     } catch (e) {
-      return {'trailer_key': '', 'imdb_id': '', 'vote_average': 'N/A'};
+      debugPrint(e.toString());
+      return {'trailer_key': '', 'vote_average': 'N/A', 'imdb_id': ''};
+    }
+  }
+
+  Future<List> searchMovies(String query) async {
+    if (query.isEmpty) return [];
+
+    try {
+      final response = await Dio().get(
+        'https://api.themoviedb.org/3/search/movie',
+        queryParameters: {
+          'api_key': _apiKey,
+          'query': query,
+          'include_adult': false,
+        },
+      );
+      return response.data['results'] as List;
+    } catch (e) {
+      debugPrint('Search Error: $e');
+      return [];
     }
   }
 }
@@ -195,6 +233,8 @@ class WatchlistCubit extends HydratedCubit<List<Map<String, dynamic>>> {
   void removeFromWatchlist(int id) {
     emit(state.where((m) => m['id'] != id).toList());
   }
+
+  void clearWatchlist() => emit([]);
 
   @override
   Map<String, dynamic>? toJson(List<Map<String, dynamic>> state) => {
@@ -219,7 +259,7 @@ void _showDetailsSheet(
 ) {
   showModalBottomSheet(
     context: context,
-    backgroundColor: Colors.grey[900],
+    backgroundColor: const Color.fromARGB(255, 0, 0, 0),
     shape: const RoundedRectangleBorder(
       borderRadius: BorderRadius.vertical(top: Radius.circular(25)),
     ),
@@ -234,7 +274,10 @@ void _showDetailsSheet(
           ),
           const SizedBox(height: 15),
           ListTile(
-            leading: const Icon(Icons.play_circle, color: Colors.red),
+            leading: const Icon(
+              Icons.play_circle,
+              color: Color.fromARGB(255, 212, 0, 0),
+            ),
             title: const Text('Watch Trailer'),
             onTap: () => _launchURL(
               'https://www.youtube.com/watch?v=${details['trailer_key']}',
@@ -265,7 +308,7 @@ Future<void> _handleLongPress(BuildContext context, dynamic movie) async {
   _showDetailsSheet(context, movie, details);
 }
 
-// --- UPDATED SCREEN 1: MOOD SELECTION + SEARCH ---
+// --- MOOD SELECTION + SEARCH ---
 class MoodSelectionScreen extends StatefulWidget {
   const MoodSelectionScreen({super.key});
   @override
@@ -289,31 +332,69 @@ class _MoodSelectionScreenState extends State<MoodSelectionScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('ReelMood'), centerTitle: true),
+      backgroundColor: Colors.black,
+      appBar: AppBar(
+        title: const Text(
+          'ReelScope',
+          style: TextStyle(fontWeight: FontWeight.w600, letterSpacing: 1.2),
+        ),
+        centerTitle: true,
+        backgroundColor: Colors.black,
+        elevation: 6,
+        scrolledUnderElevation: 0,
+        surfaceTintColor: Colors.transparent,
+      ),
       body: Column(
         children: [
           Padding(
-            padding: const EdgeInsets.all(16.0),
-            child: TextField(
-              controller: _searchController,
-              focusNode: _searchFocusNode,
-              onChanged: _onSearch,
-              decoration: InputDecoration(
-                hintText: 'Search any movie...',
-                prefixIcon: const Icon(Icons.search),
-                suffixIcon: _searchController.text.isNotEmpty
-                    ? IconButton(
-                        icon: const Icon(Icons.close),
-                        onPressed: () {
-                          _searchController.clear();
-                          _onSearch('');
-                          _searchFocusNode.unfocus();
-                        },
-                      )
-                    : null,
-                filled: true,
-                fillColor: Colors.grey[900],
-                border: OutlineInputBorder(borderRadius: BorderRadius.circular(30), borderSide: BorderSide.none),
+            padding: const EdgeInsets.only(top: 20.0),
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(16, 8, 16, 12),
+              child: Container(
+                decoration: BoxDecoration(
+                  borderRadius: BorderRadius.circular(30),
+                  boxShadow: [
+                    BoxShadow(
+                      color: const Color(0xFFE50914).withOpacity(0.25),
+                      blurRadius: 14,
+                      spreadRadius: 1,
+                    ),
+                  ],
+                ),
+                child: TextField(
+                  controller: _searchController,
+                  focusNode: _searchFocusNode,
+                  onChanged: _onSearch,
+                  style: const TextStyle(color: Colors.white),
+                  decoration: InputDecoration(
+                    hintText: 'Search any movie...',
+                    hintStyle: const TextStyle(color: Color(0xFF8E8E93)),
+                    prefixIcon: const Icon(
+                      Icons.search,
+                      color: Color(0xFFE50914),
+                    ),
+                    suffixIcon: _searchController.text.isNotEmpty
+                        ? IconButton(
+                            icon: const Icon(
+                              Icons.close,
+                              color: Color(0xFF8E8E93),
+                            ),
+                            onPressed: () {
+                              _searchController.clear();
+                              _onSearch('');
+                              _searchFocusNode.unfocus();
+                            },
+                          )
+                        : null,
+                    filled: true,
+                    fillColor: const Color(0xFF111111),
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(30),
+                      borderSide: BorderSide.none,
+                    ),
+                    contentPadding: const EdgeInsets.symmetric(vertical: 16),
+                  ),
+                ),
               ),
             ),
           ),
@@ -326,14 +407,26 @@ class _MoodSelectionScreenState extends State<MoodSelectionScreen> {
                       return ListTile(
                         onLongPress: () => _handleLongPress(context, movie),
                         leading: movie['poster_path'] != null
-                            ? Image.network('https://image.tmdb.org/t/p/w92${movie['poster_path']}')
+                            ? Image.network(
+                                'https://image.tmdb.org/t/p/w92${movie['poster_path']}',
+                              )
                             : const Icon(Icons.movie),
                         title: Text(movie['title'] ?? 'Unknown'),
                         trailing: IconButton(
-                          icon: const Icon(Icons.add_circle_outline, color: Colors.greenAccent),
+                          icon: const Icon(
+                            Icons.add_circle_outline,
+                            color: Colors.greenAccent,
+                          ),
                           onPressed: () {
-                            context.read<WatchlistCubit>().addToWatchlist(movie, 'Search');
-                            ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Added to Watchlist!')));
+                            context.read<WatchlistCubit>().addToWatchlist(
+                              movie,
+                              'Search',
+                            );
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              const SnackBar(
+                                content: Text('Added to Watchlist!'),
+                              ),
+                            );
                           },
                         ),
                       );
@@ -341,35 +434,68 @@ class _MoodSelectionScreenState extends State<MoodSelectionScreen> {
                   )
                 : GridView.builder(
                     padding: const EdgeInsets.all(16),
-                    gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-                      crossAxisCount: 2,
-                      childAspectRatio: 1.1,
-                      crossAxisSpacing: 15,
-                      mainAxisSpacing: 15,
-                    ),
+                    gridDelegate:
+                        const SliverGridDelegateWithFixedCrossAxisCount(
+                          crossAxisCount: 2,
+                          childAspectRatio: 1.1,
+                          crossAxisSpacing: 15,
+                          mainAxisSpacing: 15,
+                        ),
                     itemCount: moodsList.length,
                     itemBuilder: (context, index) {
                       final mood = moodsList[index];
                       return GestureDetector(
                         onTap: () {
-                          // Fetch movies then PUSH the discovery screen on top
                           context.read<MovieCubit>().fetchMovies(mood.label);
                           Navigator.push(
                             context,
                             MaterialPageRoute(
-                              builder: (context) => DiscoveryScreen(selectedMood: mood.label),
+                              builder: (context) =>
+                                  DiscoveryScreen(selectedMood: mood.label),
                             ),
                           );
                         },
-                        child: ClipRRect(
-                          borderRadius: BorderRadius.circular(20),
-                          child: Stack(
-                            fit: StackFit.expand,
-                            children: [
-                              Image.network(mood.imageUrl, fit: BoxFit.cover),
-                              Container(color: Colors.black45),
-                              Center(child: Text(mood.label, style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold), textAlign: TextAlign.center)),
+                        child: Container(
+                          decoration: BoxDecoration(
+                            borderRadius: BorderRadius.circular(22),
+                            boxShadow: [
+                              BoxShadow(
+                                color: const Color.fromARGB(255, 125, 7, 13),
+                                blurRadius: 10,
+                                spreadRadius: 1,
+                              ),
                             ],
+                          ),
+                          child: ClipRRect(
+                            borderRadius: BorderRadius.circular(15),
+                            child: Stack(
+                              fit: StackFit.expand,
+                              children: [
+                                Image.network(mood.imageUrl, fit: BoxFit.cover),
+                                Container(
+                                  decoration: BoxDecoration(
+                                    gradient: LinearGradient(
+                                      begin: Alignment.bottomCenter,
+                                      end: Alignment.topCenter,
+                                      colors: [
+                                        Colors.black.withOpacity(0.65),
+                                        Colors.black.withOpacity(0.25),
+                                      ],
+                                    ),
+                                  ),
+                                ),
+                                Center(
+                                  child: Text(
+                                    mood.label,
+                                    style: const TextStyle(
+                                      fontSize: 18,
+                                      fontWeight: FontWeight.bold,
+                                      letterSpacing: 0.6,
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ),
                           ),
                         ),
                       );
@@ -382,28 +508,66 @@ class _MoodSelectionScreenState extends State<MoodSelectionScreen> {
   }
 }
 
-// --- SCREEN 2: DISCOVERY ---
-class DiscoveryScreen extends StatelessWidget {
+// --- DISCOVERY SCREEN WITH RESUME POSITION ---
+// --- DISCOVERY SCREEN WITH RESUME POSITION ---
+class DiscoveryScreen extends StatefulWidget {
   final String selectedMood;
   const DiscoveryScreen({super.key, required this.selectedMood});
 
   @override
+  State<DiscoveryScreen> createState() => _DiscoveryScreenState();
+}
+
+class _DiscoveryScreenState extends State<DiscoveryScreen> {
+  final CardSwiperController _controller = CardSwiperController();
+
+  @override
+  void initState() {
+    super.initState();
+    // Ensure we fetch movies if not already cached
+    context.read<MovieCubit>().fetchMovies(widget.selectedMood);
+  }
+
+  @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: Text('Mood: $selectedMood'), elevation: 0),
+      appBar: AppBar(
+        title: Text('Mood: ${widget.selectedMood}'),
+        elevation: 0,
+        backgroundColor: Colors.black,
+      ),
       body: BlocBuilder<MovieCubit, MovieState>(
         builder: (context, state) {
-          if (state is MovieLoading)
+          if (state is MovieLoading) {
             return const Center(child: CircularProgressIndicator());
+          }
           if (state is MovieLoaded) {
+            final startIndex = context.read<MovieCubit>().getLastSwipeIndex(
+              widget.selectedMood,
+            );
+
+            // Move controller to saved index after build
+            WidgetsBinding.instance.addPostFrameCallback((_) {
+              if (_controller.index != startIndex) {
+                _controller.move(startIndex);
+              }
+            });
+
             return CardSwiper(
+              controller: _controller,
               cardsCount: state.movies.length,
               onSwipe: (prev, curr, dir) {
-                if (dir == CardSwiperDirection.right)
+                context.read<MovieCubit>().updateSwipeIndex(
+                  widget.selectedMood,
+                  curr,
+                );
+
+                if (dir == CardSwiperDirection.right) {
                   context.read<WatchlistCubit>().addToWatchlist(
                     state.movies[prev],
-                    selectedMood,
+                    widget.selectedMood,
                   );
+                }
                 return true;
               },
               cardBuilder: (context, index, x, y) {
@@ -462,8 +626,7 @@ class MainNavigationWrapper extends StatefulWidget {
 
 class _MainNavigationWrapperState extends State<MainNavigationWrapper> {
   int _selectedIndex = 0;
-  
-  // List of root screens
+
   final List<Widget> _screens = [
     const MoodSelectionScreen(),
     const WatchlistScreen(),
@@ -473,71 +636,334 @@ class _MainNavigationWrapperState extends State<MainNavigationWrapper> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      body: IndexedStack( // Keeps scroll positions alive when switching tabs
-        index: _selectedIndex,
-        children: _screens,
-      ),
-      bottomNavigationBar: BottomNavigationBar(
-        currentIndex: _selectedIndex,
-        onTap: (index) => setState(() => _selectedIndex = index),
-        selectedItemColor: Colors.greenAccent,
-        unselectedItemColor: Colors.grey,
-        items: const [
-          BottomNavigationBarItem(icon: Icon(Icons.search), label: 'Explore'),
-          BottomNavigationBarItem(icon: Icon(Icons.favorite), label: 'Watchlist'),
-          BottomNavigationBarItem(icon: Icon(Icons.insights), label: 'Stats'),
-        ],
+      body: IndexedStack(index: _selectedIndex, children: _screens),
+      bottomNavigationBar: SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 1),
+          child: Container(
+            height: 70,
+            decoration: BoxDecoration(
+              color: Colors.black,
+              borderRadius: BorderRadius.circular(25),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.red.withOpacity(0.25),
+                  blurRadius: 10,
+                  spreadRadius: 1,
+                ),
+              ],
+            ),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.spaceAround,
+              children: [
+                IconButton(
+                  icon: const Icon(Icons.explore, size: 32),
+                  color: _selectedIndex == 0
+                      ? const Color.fromARGB(255, 180, 25, 12)
+                      : Colors.grey,
+                  onPressed: () => setState(() => _selectedIndex = 0),
+                ),
+                IconButton(
+                  icon: const Icon(Icons.playlist_add, size: 32),
+                  color: _selectedIndex == 1
+                      ? const Color.fromARGB(255, 180, 20, 9)
+                      : Colors.grey,
+                  onPressed: () => setState(() => _selectedIndex = 1),
+                ),
+                IconButton(
+                  icon: const Icon(Icons.bar_chart, size: 32),
+                  color: _selectedIndex == 2
+                      ? const Color.fromARGB(255, 180, 25, 12)
+                      : Colors.grey,
+                  onPressed: () => setState(() => _selectedIndex = 2),
+                ),
+              ],
+            ),
+          ),
+        ),
       ),
     );
   }
 }
 
-// --- WATCHLIST & STATS ---
-class WatchlistScreen extends StatelessWidget {
+// --- WATCHLIST SCREEN ---
+class WatchlistScreen extends StatefulWidget {
   const WatchlistScreen({super.key});
+
+  @override
+  State<WatchlistScreen> createState() => _WatchlistScreenState();
+}
+
+class _WatchlistScreenState extends State<WatchlistScreen> {
+  final Set<int> _expandedMovies = {};
+
+  void _toggleExpanded(int movieId) {
+    setState(() {
+      if (_expandedMovies.contains(movieId)) {
+        _expandedMovies.remove(movieId);
+      } else {
+        _expandedMovies.add(movieId);
+      }
+    });
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('My Watchlist')),
+      backgroundColor: Colors.black,
+      appBar: AppBar(
+        title: const Text('My Watchlist'),
+        centerTitle: true,
+        backgroundColor: Colors.black,
+        elevation: 0,
+      ),
       body: BlocBuilder<WatchlistCubit, List<Map<String, dynamic>>>(
         builder: (context, list) {
-          if (list.isEmpty) return const Center(child: Text("Empty list"));
-          return ListView.builder(
-            itemCount: list.length,
-            itemBuilder: (context, i) => ListTile(
-              onLongPress: () => _handleLongPress(context, list[i]),
-              leading: list[i]['poster_path'] != null
-                  ? Image.network(
-                      'https://image.tmdb.org/t/p/w92${list[i]['poster_path']}',
-                    )
-                  : const Icon(Icons.movie),
-              title: Text(list[i]['title'] ?? 'Unknown'),
-              subtitle: Text('Context: ${list[i]['saved_mood']}'),
-              trailing: IconButton(
-                icon: const Icon(Icons.delete),
-                onPressed: () => context
-                    .read<WatchlistCubit>()
-                    .removeFromWatchlist(list[i]['id']),
+          if (list.isEmpty)
+            return const Center(
+              child: Text(
+                'No movies saved yet',
+                style: TextStyle(color: Color(0xFF8E8E93), fontSize: 18),
               ),
+            );
+          return ListView.builder(
+            padding: const EdgeInsets.fromLTRB(16, 16, 16, 100),
+            itemCount: list.length,
+            itemBuilder: (context, i) {
+              final movie = list[i];
+              final isExpanded = _expandedMovies.contains(movie['id']);
+              return AnimatedContainer(
+                duration: const Duration(milliseconds: 300),
+                margin: const EdgeInsets.only(bottom: 16),
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: const Color(0xFF111111),
+                  borderRadius: BorderRadius.circular(20),
+                  boxShadow: [
+                    BoxShadow(
+                      color: const Color(0xFFE50914).withOpacity(0.25),
+                      blurRadius: 12,
+                      spreadRadius: 1,
+                    ),
+                  ],
+                ),
+                child: Column(
+                  children: [
+                    Row(
+                      children: [
+                        ClipRRect(
+                          borderRadius: BorderRadius.circular(14),
+                          child: movie['poster_path'] != null
+                              ? Image.network(
+                                  'https://image.tmdb.org/t/p/w154${movie['poster_path']}',
+                                  height: 90,
+                                  width: 60,
+                                  fit: BoxFit.cover,
+                                )
+                              : Container(
+                                  height: 90,
+                                  width: 60,
+                                  color: Colors.grey.shade800,
+                                  child: const Icon(Icons.movie),
+                                ),
+                        ),
+                        const SizedBox(width: 16),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                movie['title'] ?? 'Unknown',
+                                maxLines: 2,
+                                overflow: TextOverflow.ellipsis,
+                                style: const TextStyle(
+                                  fontSize: 16,
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              ),
+                              const SizedBox(height: 8),
+                              Container(
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 10,
+                                  vertical: 4,
+                                ),
+                                decoration: BoxDecoration(
+                                  color: const Color(
+                                    0xFFE50914,
+                                  ).withOpacity(0.15),
+                                  borderRadius: BorderRadius.circular(20),
+                                ),
+                                child: Text(
+                                  movie['saved_mood'],
+                                  style: const TextStyle(
+                                    color: Color(0xFFE50914),
+                                    fontSize: 12,
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                        IconButton(
+                          icon: const Icon(Icons.delete_outline),
+                          color: const Color(0xFFE50914),
+                          onPressed: () {
+                            context.read<WatchlistCubit>().removeFromWatchlist(
+                              movie['id'],
+                            );
+                          },
+                        ),
+                        IconButton(
+                          icon: Icon(
+                            isExpanded ? Icons.info : Icons.info_outline,
+                            color: Colors.white,
+                          ),
+                          onPressed: () => _toggleExpanded(movie['id']),
+                        ),
+                      ],
+                    ),
+                    if (isExpanded)
+                      FutureBuilder<Map<String, String>>(
+                        future: context.read<MovieCubit>().fetchMovieDetails(
+                          movie['id'],
+                        ),
+                        builder: (context, snapshot) {
+                          if (!snapshot.hasData)
+                            return const Padding(
+                              padding: EdgeInsets.all(8.0),
+                              child: Center(child: CircularProgressIndicator()),
+                            );
+                          final details = snapshot.data!;
+                          return Padding(
+                            padding: const EdgeInsets.only(top: 12),
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                GestureDetector(
+                                  onTap: () => _launchURL(
+                                    'https://www.youtube.com/watch?v=${details['trailer_key']}',
+                                  ),
+                                  child: Row(
+                                    children: const [
+                                      Icon(
+                                        Icons.play_circle,
+                                        color: Color(0xFFD40000),
+                                      ),
+                                      SizedBox(width: 8),
+                                      Text(
+                                        'Watch Trailer',
+                                        style: const TextStyle(
+                                          color: Colors.white,
+                                          fontWeight: FontWeight.w500,
+                                          decoration: TextDecoration.underline,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                                const SizedBox(height: 6),
+                                GestureDetector(
+                                  onTap: () => _launchURL(
+                                    'https://www.imdb.com/title/${details['imdb_id']}',
+                                  ),
+                                  child: Row(
+                                    children: [
+                                      const Icon(
+                                        Icons.star,
+                                        color: Colors.amber,
+                                      ),
+                                      const SizedBox(width: 8),
+                                      Text(
+                                        'IMDb Rating: ${details['vote_average']}',
+                                        style: const TextStyle(
+                                          color: Colors.white,
+                                          fontWeight: FontWeight.w500,
+                                          decoration: TextDecoration.underline,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              ],
+                            ),
+                          );
+                        },
+                      ),
+                  ],
+                ),
+              );
+            },
+          );
+        },
+      ),
+      floatingActionButton: BlocBuilder<WatchlistCubit, List<Map<String, dynamic>>>(
+        builder: (context, list) {
+          if (list.isEmpty) return const SizedBox.shrink();
+          return Opacity(
+            opacity: 0.85,
+            child: FloatingActionButton.extended(
+              backgroundColor: const Color.fromARGB(255, 159, 7, 14),
+              icon: const Icon(Icons.delete_forever),
+              label: const Text('Remove All'),
+              onPressed: () {
+                showDialog(
+                  context: context,
+                  builder: (_) => AlertDialog(
+                    backgroundColor: Colors.black,
+                    title: const Text(
+                      'Clear Watchlist?',
+                      style: TextStyle(color: Colors.white),
+                    ),
+                    content: const Text(
+                      'Are you sure you want to remove all movies from your watchlist?',
+                      style: TextStyle(color: Colors.white70),
+                    ),
+                    actions: [
+                      TextButton(
+                        onPressed: () => Navigator.pop(context),
+                        child: const Text('Cancel'),
+                      ),
+                      TextButton(
+                        onPressed: () {
+                          context.read<WatchlistCubit>().clearWatchlist();
+                          Navigator.pop(context);
+                        },
+                        child: const Text(
+                          'Remove All',
+                          style: TextStyle(color: Colors.red),
+                        ),
+                      ),
+                    ],
+                  ),
+                );
+              },
             ),
           );
         },
       ),
+      floatingActionButtonLocation: FloatingActionButtonLocation.centerFloat,
     );
   }
 }
 
+// --- STATS SCREEN ---
 class StatsScreen extends StatelessWidget {
   const StatsScreen({super.key});
+
   @override
   Widget build(BuildContext context) {
-    final count = context.watch<WatchlistCubit>().state.length;
     return Scaffold(
-      appBar: AppBar(title: const Text('Stats')),
-      body: Center(
+      backgroundColor: Colors.black,
+      appBar: AppBar(
+        title: const Text('Stats'),
+        centerTitle: true,
+        backgroundColor: Colors.black,
+        elevation: 0,
+      ),
+      body: const Center(
         child: Text(
-          "You liked $count movies!",
-          style: const TextStyle(fontSize: 24),
+          'Stats Coming Soon!',
+          style: TextStyle(color: Colors.white70),
         ),
       ),
     );
