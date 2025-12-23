@@ -127,21 +127,12 @@ class MovieLoaded extends MovieState {
   MovieLoaded(this.movies);
 }
 
-// --- MOVIE CUBIT WITH CACHING ---
 class MovieCubit extends Cubit<MovieState> {
   MovieCubit() : super(MovieInitial());
-
-  final Map<String, List> _cachedMovies = {}; // cache per mood
-  final Map<String, int> _swipeIndex = {}; // track last swipe index per mood
   String get _apiKey => dotenv.env['TMDB_API_KEY'] ?? '';
 
   void fetchMovies(String moodLabel) async {
-    // Use cache if available
-    if (_cachedMovies.containsKey(moodLabel)) {
-      emit(MovieLoaded(_cachedMovies[moodLabel]!));
-      return;
-    }
-
+    if (_apiKey.isEmpty) return;
     emit(MovieLoading());
     try {
       final mood = moodsList.firstWhere((m) => m.label == moodLabel);
@@ -154,24 +145,27 @@ class MovieCubit extends Cubit<MovieState> {
         params['release_date.lte'] = '2010-12-31';
         params['with_genres'] = '18,10751';
       }
-
       final response = await Dio().get(
         'https://api.themoviedb.org/3/discover/movie',
         queryParameters: params,
       );
-
-      _cachedMovies[moodLabel] = response.data['results'];
-      _swipeIndex[moodLabel] = 0; // start from first card
       emit(MovieLoaded(response.data['results']));
     } catch (e) {
       debugPrint(e.toString());
     }
   }
 
-  int getLastSwipeIndex(String moodLabel) => _swipeIndex[moodLabel] ?? 0;
-
-  void updateSwipeIndex(String moodLabel, int index) {
-    _swipeIndex[moodLabel] = index;
+  Future<List> searchMovies(String query) async {
+    if (query.isEmpty) return [];
+    try {
+      final response = await Dio().get(
+        'https://api.themoviedb.org/3/search/movie',
+        queryParameters: {'api_key': _apiKey, 'query': query},
+      );
+      return response.data['results'];
+    } catch (e) {
+      return [];
+    }
   }
 
   Future<Map<String, String>> fetchMovieDetails(int movieId) async {
@@ -180,42 +174,20 @@ class MovieCubit extends Cubit<MovieState> {
         'https://api.themoviedb.org/3/movie/$movieId',
         queryParameters: {'api_key': _apiKey, 'append_to_response': 'videos'},
       );
-
-      String trailerKey = '';
       final videos = response.data['videos']['results'] as List;
       final trailer = videos.firstWhere(
         (v) => v['type'] == 'Trailer' && v['site'] == 'YouTube',
-        orElse: () => null,
+        orElse: () => {'key': ''},
       );
-      if (trailer != null) trailerKey = trailer['key'];
-
       return {
-        'trailer_key': trailerKey,
-        'vote_average': response.data['vote_average'].toString(),
+        'trailer_key': trailer['key'] ?? '',
         'imdb_id': response.data['imdb_id'] ?? '',
+        'vote_average': (response.data['vote_average'] as num)
+            .toDouble()
+            .toStringAsFixed(1),
       };
     } catch (e) {
-      debugPrint(e.toString());
-      return {'trailer_key': '', 'vote_average': 'N/A', 'imdb_id': ''};
-    }
-  }
-
-  Future<List> searchMovies(String query) async {
-    if (query.isEmpty) return [];
-
-    try {
-      final response = await Dio().get(
-        'https://api.themoviedb.org/3/search/movie',
-        queryParameters: {
-          'api_key': _apiKey,
-          'query': query,
-          'include_adult': false,
-        },
-      );
-      return response.data['results'] as List;
-    } catch (e) {
-      debugPrint('Search Error: $e');
-      return [];
+      return {'trailer_key': '', 'imdb_id': '', 'vote_average': 'N/A'};
     }
   }
 }
@@ -347,7 +319,7 @@ class _MoodSelectionScreenState extends State<MoodSelectionScreen> {
       body: Column(
         children: [
           Padding(
-            padding: const EdgeInsets.only(top: 20.0),
+            padding: const EdgeInsetsGeometry.only(top: 20.0),
             child: Padding(
               padding: const EdgeInsets.fromLTRB(16, 8, 16, 12),
               child: Container(
@@ -508,66 +480,32 @@ class _MoodSelectionScreenState extends State<MoodSelectionScreen> {
   }
 }
 
-// --- DISCOVERY SCREEN WITH RESUME POSITION ---
-// --- DISCOVERY SCREEN WITH RESUME POSITION ---
-class DiscoveryScreen extends StatefulWidget {
+// --- DISCOVERY SCREEN ---
+class DiscoveryScreen extends StatelessWidget {
   final String selectedMood;
   const DiscoveryScreen({super.key, required this.selectedMood});
-
-  @override
-  State<DiscoveryScreen> createState() => _DiscoveryScreenState();
-}
-
-class _DiscoveryScreenState extends State<DiscoveryScreen> {
-  final CardSwiperController _controller = CardSwiperController();
-
-  @override
-  void initState() {
-    super.initState();
-    // Ensure we fetch movies if not already cached
-    context.read<MovieCubit>().fetchMovies(widget.selectedMood);
-  }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: Text('Mood: ${widget.selectedMood}'),
+        title: Text('Mood: $selectedMood'),
         elevation: 0,
         backgroundColor: Colors.black,
       ),
       body: BlocBuilder<MovieCubit, MovieState>(
         builder: (context, state) {
-          if (state is MovieLoading) {
+          if (state is MovieLoading)
             return const Center(child: CircularProgressIndicator());
-          }
           if (state is MovieLoaded) {
-            final startIndex = context.read<MovieCubit>().getLastSwipeIndex(
-              widget.selectedMood,
-            );
-
-            // Move controller to saved index after build
-            WidgetsBinding.instance.addPostFrameCallback((_) {
-              if (_controller.index != startIndex) {
-                _controller.move(startIndex);
-              }
-            });
-
             return CardSwiper(
-              controller: _controller,
               cardsCount: state.movies.length,
               onSwipe: (prev, curr, dir) {
-                context.read<MovieCubit>().updateSwipeIndex(
-                  widget.selectedMood,
-                  curr,
-                );
-
-                if (dir == CardSwiperDirection.right) {
+                if (dir == CardSwiperDirection.right)
                   context.read<WatchlistCubit>().addToWatchlist(
                     state.movies[prev],
-                    widget.selectedMood,
+                    selectedMood,
                   );
-                }
                 return true;
               },
               cardBuilder: (context, index, x, y) {
