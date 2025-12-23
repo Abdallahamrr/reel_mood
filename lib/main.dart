@@ -30,13 +30,13 @@ void main() async {
   runApp(
     DevicePreview(
       enabled: !kReleaseMode,
-      builder: (context) => const ReelMoodApp(),
+      builder: (context) => const MovieScoutApp(),
     ),
   );
 }
 
-class ReelMoodApp extends StatelessWidget {
-  const ReelMoodApp({super.key});
+class MovieScoutApp extends StatelessWidget {
+  const MovieScoutApp({super.key});
   @override
   Widget build(BuildContext context) {
     return MultiBlocProvider(
@@ -56,59 +56,59 @@ class ReelMoodApp extends StatelessWidget {
 }
 
 // --- MODELS ---
-class MoodData {
+class GenreData {
   final String label, imageUrl;
   final int genreId;
-  MoodData({
+  GenreData({
     required this.label,
     required this.imageUrl,
     required this.genreId,
   });
 }
 
-final List<MoodData> moodsList = [
-  MoodData(
+final List<GenreData> GenresList = [
+  GenreData(
     label: 'Nostalgic',
     imageUrl:
         'https://i.ytimg.com/vi/EE1LYF_J0vE/hq720.jpg?sqp=-oaymwEhCK4FEIIDSFryq4qpAxMIARUAAAAAGAElAADIQj0AgKJD&rs=AOn4CLArdFwtjlZh9QCH1fFykSO_zRXTtw',
     genreId: 10751,
   ),
-  MoodData(
+  GenreData(
     label: 'Drama',
     imageUrl:
         'https://static0.srcdn.com/wordpress/wp-content/uploads/2023/11/matthew-mcconaughey-crying-in-interstellar.jpg',
     genreId: 18,
   ),
-  MoodData(
+  GenreData(
     label: 'Romance',
     imageUrl:
         'https://imgix.ranker.com/user_node_img/33/641410/original/641410-photo-u-1637993469',
     genreId: 10749,
   ),
-  MoodData(
+  GenreData(
     label: 'Action',
     imageUrl:
         'https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcQFj82XraC_Jil95onsJTXzYZg2n-MM2mQVWg&s',
     genreId: 28,
   ),
-  MoodData(
+  GenreData(
     label: 'Sci-Fi',
     imageUrl:
         'https://variety.com/wp-content/uploads/2014/10/screen-shot-2014-10-22-at-11-36-12-am.png',
     genreId: 878,
   ),
-  MoodData(
+  GenreData(
     label: 'Adventure',
     imageUrl: 'https://pbs.twimg.com/media/EVwIabZVcAAuXD_.jpg',
     genreId: 12,
   ),
-  MoodData(
+  GenreData(
     label: 'Comedy',
     imageUrl:
         'https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcTp-IhBn3FQ0r3euLUPgq_z0yXwn_hfpLPlnA&s',
     genreId: 35,
   ),
-  MoodData(
+  GenreData(
     label: 'Horror',
     imageUrl:
         'https://www.thevintagenews.com/wp-content/uploads/sites/65/2019/02/img_9569-21-02-19-09-50-fx.jpg',
@@ -132,17 +132,17 @@ class MovieCubit extends Cubit<MovieState> {
   MovieCubit() : super(MovieInitial());
   String get _apiKey => dotenv.env['TMDB_API_KEY'] ?? '';
 
-  void fetchMovies(String moodLabel) async {
+  void fetchMovies(String GenreLabel) async {
     if (_apiKey.isEmpty) return;
     emit(MovieLoading());
     try {
-      final mood = moodsList.firstWhere((m) => m.label == moodLabel);
+      final Genre = GenresList.firstWhere((m) => m.label == GenreLabel);
       Map<String, dynamic> params = {
         'api_key': _apiKey,
-        'with_genres': mood.genreId,
+        'with_genres': Genre.genreId,
         'sort_by': 'popularity.desc',
       };
-      if (moodLabel == 'Nostalgic') {
+      if (GenreLabel == 'Nostalgic') {
         params['release_date.lte'] = '2010-12-31';
         params['with_genres'] = '18,10751';
       }
@@ -195,11 +195,11 @@ class MovieCubit extends Cubit<MovieState> {
 
 class WatchlistCubit extends HydratedCubit<List<Map<String, dynamic>>> {
   WatchlistCubit() : super([]);
-  void addToWatchlist(Map<String, dynamic> movie, String mood) {
+  void addToWatchlist(Map<String, dynamic> movie, String Genre) {
     if (!state.any((m) => m['id'] == movie['id']))
       emit([
         ...state,
-        {...movie, 'saved_mood': mood},
+        {...movie, 'saved_Genre': Genre},
       ]);
   }
 
@@ -281,14 +281,14 @@ Future<void> _handleLongPress(BuildContext context, dynamic movie) async {
   _showDetailsSheet(context, movie, details);
 }
 
-// --- MOOD SELECTION + SEARCH ---
-class MoodSelectionScreen extends StatefulWidget {
-  const MoodSelectionScreen({super.key});
+// --- Genre SELECTION + SEARCH ---
+class GenreSelectionScreen extends StatefulWidget {
+  const GenreSelectionScreen({super.key});
   @override
-  State<MoodSelectionScreen> createState() => _MoodSelectionScreenState();
+  State<GenreSelectionScreen> createState() => _GenreSelectionScreenState();
 }
 
-class _MoodSelectionScreenState extends State<MoodSelectionScreen> {
+class _GenreSelectionScreenState extends State<GenreSelectionScreen> {
   List _searchResults = [];
   final TextEditingController _searchController = TextEditingController();
   final FocusNode _searchFocusNode = FocusNode();
@@ -414,17 +414,17 @@ class _MoodSelectionScreenState extends State<MoodSelectionScreen> {
                           crossAxisSpacing: 15,
                           mainAxisSpacing: 15,
                         ),
-                    itemCount: moodsList.length,
+                    itemCount: GenresList.length,
                     itemBuilder: (context, index) {
-                      final mood = moodsList[index];
+                      final Genre = GenresList[index];
                       return GestureDetector(
                         onTap: () {
-                          context.read<MovieCubit>().fetchMovies(mood.label);
+                          context.read<MovieCubit>().fetchMovies(Genre.label);
                           Navigator.push(
                             context,
                             MaterialPageRoute(
                               builder: (context) =>
-                                  DiscoveryScreen(selectedMood: mood.label),
+                                  DiscoveryScreen(selectedGenre: Genre.label),
                             ),
                           );
                         },
@@ -444,7 +444,7 @@ class _MoodSelectionScreenState extends State<MoodSelectionScreen> {
                             child: Stack(
                               fit: StackFit.expand,
                               children: [
-                                Image.network(mood.imageUrl, fit: BoxFit.cover),
+                                Image.network(Genre.imageUrl, fit: BoxFit.cover),
                                 Container(
                                   decoration: BoxDecoration(
                                     gradient: LinearGradient(
@@ -459,7 +459,7 @@ class _MoodSelectionScreenState extends State<MoodSelectionScreen> {
                                 ),
                                 Center(
                                   child: Text(
-                                    mood.label,
+                                    Genre.label,
                                     style: const TextStyle(
                                       fontSize: 18,
                                       fontWeight: FontWeight.bold,
@@ -483,14 +483,14 @@ class _MoodSelectionScreenState extends State<MoodSelectionScreen> {
 
 // --- DISCOVERY SCREEN ---
 class DiscoveryScreen extends StatelessWidget {
-  final String selectedMood;
-  const DiscoveryScreen({super.key, required this.selectedMood});
+  final String selectedGenre;
+  const DiscoveryScreen({super.key, required this.selectedGenre});
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: Text('Mood: $selectedMood'),
+        title: Text('Genre: $selectedGenre'),
         elevation: 0,
         backgroundColor: Colors.black,
       ),
@@ -505,7 +505,7 @@ class DiscoveryScreen extends StatelessWidget {
                 if (dir == CardSwiperDirection.right)
                   context.read<WatchlistCubit>().addToWatchlist(
                     state.movies[prev],
-                    selectedMood,
+                    selectedGenre,
                   );
                 return true;
               },
@@ -549,7 +549,7 @@ class DiscoveryScreen extends StatelessWidget {
               },
             );
           }
-          return const Center(child: Text('Pick a mood!'));
+          return const Center(child: Text('Pick a Genre!'));
         },
       ),
     );
@@ -567,7 +567,7 @@ class _MainNavigationWrapperState extends State<MainNavigationWrapper> {
   int _selectedIndex = 0;
 
   final List<Widget> _screens = [
-    const MoodSelectionScreen(),
+    const GenreSelectionScreen(),
     const WatchlistScreen(),
     const StatsScreen(),
   ];
@@ -733,7 +733,7 @@ class _WatchlistScreenState extends State<WatchlistScreen> {
                                   borderRadius: BorderRadius.circular(20),
                                 ),
                                 child: Text(
-                                  movie['saved_mood'],
+                                  movie['saved_Genre'],
                                   style: const TextStyle(
                                     color: Color(0xFFE50914),
                                     fontSize: 12,
@@ -908,9 +908,10 @@ class StatsScreen extends StatelessWidget {
           final totalMovies = watchlist.length;
           final genreCounts = <String, int>{};
           for (var movie in watchlist) {
-            String mood = movie['saved_mood'] ?? 'Unknown';
-            genreCounts[mood] = (genreCounts[mood] ?? 0) + 1;
+            String Genre = movie['saved_Genre'] ?? 'Unknown';
+            genreCounts[Genre] = (genreCounts[Genre] ?? 0) + 1;
           }
+          final filteredCounts = Map<String, int>.from(genreCounts)..remove('Search');
 
           final mostWatchedGenre = genreCounts.entries
               .reduce((a, b) => a.value > b.value ? a : b)
@@ -949,7 +950,7 @@ class StatsScreen extends StatelessWidget {
                   height: 250,
                   child: PieChart(
                     PieChartData(
-                      sections: _generateSections(genreCounts),
+                      sections: _generateSections(filteredCounts),
                       centerSpaceRadius: 40,
                       sectionsSpace: 2,
                     ),
@@ -958,11 +959,11 @@ class StatsScreen extends StatelessWidget {
 
                 // --- LIST LEGEND ---
                 const SizedBox(height: 20),
-                ...genreCounts.entries.map(
+                ...filteredCounts.entries.map(
                   (e) => ListTile(
                     leading: Icon(
                       Icons.circle,
-                      color: _getMoodColor(e.key),
+                      color: _getGenreColor(e.key),
                       size: 12,
                     ),
                     title: Text(e.key),
@@ -1022,7 +1023,7 @@ class StatsScreen extends StatelessWidget {
   List<PieChartSectionData> _generateSections(Map<String, int> counts) {
     return counts.entries.map((e) {
       return PieChartSectionData(
-        color: _getMoodColor(e.key),
+        color: _getGenreColor(e.key),
         value: e.value.toDouble(),
         title: '${e.value}',
         radius: 50,
@@ -1034,8 +1035,8 @@ class StatsScreen extends StatelessWidget {
     }).toList();
   }
 
-  Color _getMoodColor(String mood) {
-    switch (mood) {
+  Color _getGenreColor(String Genre) {
+    switch (Genre) {
       case 'Action':
         return const Color.fromARGB(255, 86, 10, 5);
       case 'Comedy':
