@@ -8,6 +8,7 @@ import 'package:flutter_card_swiper/flutter_card_swiper.dart';
 import 'package:device_preview/device_preview.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
+import 'package:fl_chart/fl_chart.dart'; // Add fl_chart to pubspec.yaml
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -432,9 +433,9 @@ class _MoodSelectionScreenState extends State<MoodSelectionScreen> {
                             borderRadius: BorderRadius.circular(22),
                             boxShadow: [
                               BoxShadow(
-                                color: const Color.fromARGB(255, 125, 7, 13),
-                                blurRadius: 10,
-                                spreadRadius: 1,
+                                color: const Color.fromARGB(120, 106, 1, 1),
+                                blurRadius: 6,
+                                spreadRadius: 2,
                               ),
                             ],
                           ),
@@ -893,17 +894,164 @@ class StatsScreen extends StatelessWidget {
     return Scaffold(
       backgroundColor: Colors.black,
       appBar: AppBar(
-        title: const Text('Stats'),
-        centerTitle: true,
+        title: const Text('Watchlist Insights'),
         backgroundColor: Colors.black,
-        elevation: 0,
+        centerTitle: true,
       ),
-      body: const Center(
-        child: Text(
-          'Stats Coming Soon!',
-          style: TextStyle(color: Colors.white70),
+      body: BlocBuilder<WatchlistCubit, List<Map<String, dynamic>>>(
+        builder: (context, watchlist) {
+          if (watchlist.isEmpty) {
+            return const Center(child: Text("Add movies to see stats!"));
+          }
+
+          // 1. Calculate Data
+          final totalMovies = watchlist.length;
+          final genreCounts = <String, int>{};
+          for (var movie in watchlist) {
+            String mood = movie['saved_mood'] ?? 'Unknown';
+            genreCounts[mood] = (genreCounts[mood] ?? 0) + 1;
+          }
+
+          final mostWatchedGenre = genreCounts.entries
+              .reduce((a, b) => a.value > b.value ? a : b)
+              .key;
+
+          return SingleChildScrollView(
+            padding: const EdgeInsets.all(20),
+            child: Column(
+              children: [
+                // --- TOP CARDS ---
+                Row(
+                  children: [
+                    _buildStatCard(
+                      "Total Movies",
+                      totalMovies.toString(),
+                      Icons.movie,
+                    ),
+                    const SizedBox(width: 15),
+                    _buildStatCard(
+                      "Top Genre",
+                      mostWatchedGenre,
+                      Icons.favorite,
+                      color: Colors.redAccent,
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 30),
+
+                // --- PIE CHART ---
+                const Text(
+                  "Genre Distribution",
+                  style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                ),
+                const SizedBox(height: 20),
+                SizedBox(
+                  height: 250,
+                  child: PieChart(
+                    PieChartData(
+                      sections: _generateSections(genreCounts),
+                      centerSpaceRadius: 40,
+                      sectionsSpace: 2,
+                    ),
+                  ),
+                ),
+
+                // --- LIST LEGEND ---
+                const SizedBox(height: 20),
+                ...genreCounts.entries.map(
+                  (e) => ListTile(
+                    leading: Icon(
+                      Icons.circle,
+                      color: _getMoodColor(e.key),
+                      size: 12,
+                    ),
+                    title: Text(e.key),
+                    trailing: Text(
+                      "${((e.value / totalMovies) * 100).toStringAsFixed(1)}%",
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          );
+        },
+      ),
+    );
+  }
+
+  Widget _buildStatCard(
+    String title,
+    String value,
+    IconData icon, {
+    Color color = Colors.white,
+  }) {
+    return Expanded(
+      child: Container(
+        padding: const EdgeInsets.all(20),
+        decoration: BoxDecoration(
+          color: const Color(0xFF111111),
+          borderRadius: BorderRadius.circular(20),
+          border: Border.all(color: Colors.white10),
+          boxShadow: [
+            BoxShadow(
+              color: const Color(0xFFE50914).withOpacity(0.25),
+              blurRadius: 12,
+              spreadRadius: 1,
+            ),
+          ],
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Icon(icon, color: color, size: 30),
+            const SizedBox(height: 10),
+            Text(
+              title,
+              style: const TextStyle(color: Colors.grey, fontSize: 14),
+            ),
+            Text(
+              value,
+              style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
+            ),
+          ],
         ),
       ),
     );
+  }
+
+  List<PieChartSectionData> _generateSections(Map<String, int> counts) {
+    return counts.entries.map((e) {
+      return PieChartSectionData(
+        color: _getMoodColor(e.key),
+        value: e.value.toDouble(),
+        title: '${e.value}',
+        radius: 50,
+        titleStyle: const TextStyle(
+          fontWeight: FontWeight.bold,
+          color: Colors.white,
+        ),
+      );
+    }).toList();
+  }
+
+  Color _getMoodColor(String mood) {
+    switch (mood) {
+      case 'Action':
+        return const Color.fromARGB(255, 86, 10, 5);
+      case 'Comedy':
+        return const Color.fromARGB(255, 192, 173, 7);
+      case 'Sci-Fi':
+        return const Color.fromARGB(255, 73, 6, 84);
+      case 'Romance':
+        return const Color.fromARGB(255, 122, 8, 46);
+      case 'Horror':
+        return const Color.fromARGB(255, 4, 73, 34);
+      case 'Drama':
+        return const Color.fromARGB(255, 45, 46, 57);
+      case 'Adventure':
+        return const Color.fromARGB(255, 144, 85, 2);
+      default:
+        return const Color.fromARGB(255, 15, 59, 95);
+    }
   }
 }
