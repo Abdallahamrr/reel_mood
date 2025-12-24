@@ -1,9 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import '../../cubits/watchlist_cubit.dart';
-import '../../cubits/movie_cubit.dart';
 import '../../widgets/watchlist_movie_tile.dart';
-import '../../core/helpers.dart';
 
 class WatchlistScreen extends StatefulWidget {
   const WatchlistScreen({super.key});

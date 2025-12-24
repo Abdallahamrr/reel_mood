@@ -1,10 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
-import 'package:fl_chart/fl_chart.dart';
 import '../../cubits/watchlist_cubit.dart';
 import '../../widgets/stat_card.dart';
 import '../../widgets/genre_pie_chart.dart';
-import '../../core/helpers.dart';
 
 class StatsScreen extends StatelessWidget {
   const StatsScreen({super.key});
